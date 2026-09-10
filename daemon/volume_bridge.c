@@ -11,6 +11,16 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <signal.h>
+
+static void launch_app_async(const char* comp) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        close(0); close(1); close(2);
+        execl("/system/bin/am", "am", "start", "-n", comp, (char*)NULL);
+        _exit(0);
+    }
+}
 
 static void send_to_overlay(int vol, int mute) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -246,6 +256,8 @@ int main() {
     printf("EVIOCGRAB active! Shielding Android from raw IR burst storms.\n");
     fflush(stdout);
 
+    signal(SIGCHLD, SIG_IGN);
+
     // 3. Start timing worker and CEC monitor threads
     pthread_t th;
     pthread_create(&th, NULL, timing_worker, NULL);
@@ -256,6 +268,36 @@ int main() {
     // 4. Read events from hardware
     struct input_event ev;
     while (read(raw_fd, &ev, sizeof(ev)) == sizeof(ev)) {
+        if (ev.type == EV_KEY) {
+            // Remap 1: NETFLIX (632) -> Stremio
+            if (ev.code == 632) {
+                if (ev.value == 1) {
+                    printf("[%lld ms] REMAP: Netflix (632) -> Stremio\n", now_ms());
+                    fflush(stdout);
+                    launch_app_async("com.stremio.one/com.stremio.tv.MainActivity");
+                }
+                continue; // Consume event completely
+            }
+            // Remap 2: Windows / 4-tile button (695) -> YouTube (SmartTube)
+            if (ev.code == 695) {
+                if (ev.value == 1) {
+                    printf("[%lld ms] REMAP: Windows/Tile (695) -> YouTube (SmartTube)\n", now_ms());
+                    fflush(stdout);
+                    launch_app_async("org.smarttube.stable/com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity");
+                }
+                continue; // Consume event completely
+            }
+            // Remap 3: Rakuten TV (779) -> TiviMate
+            if (ev.code == 779) {
+                if (ev.value == 1) {
+                    printf("[%lld ms] REMAP: Rakuten TV (779) -> TiviMate\n", now_ms());
+                    fflush(stdout);
+                    launch_app_async("ar.tvplayer.tv/.ui.MainActivity");
+                }
+                continue; // Consume event completely
+            }
+        }
+
         // Non-volume keys: forward transparently
         if (ev.type != EV_KEY || (ev.code != KEY_VOLUMEUP && ev.code != KEY_VOLUMEDOWN)) {
             write(g_uinput_fd, &ev, sizeof(ev));
