@@ -1,4 +1,4 @@
-﻿# Android TV Volume Bridge, CEC Overlay & Remote Remapper (`tv-volume-fix`)
+# Android TV Volume Bridge, CEC Overlay & Remote Remapper (`tv-volume-fix`)
 
 A complete, low-latency, fully automated system designed for **Android TVs (Philips TPM191E / TPM171E)** connected to an **external soundbar or AV receiver (Yamaha YSP / YAS series, Sonos, Denon)** via **HDMI-ARC/CEC**, with native hardware button remapping for **replica/replacement IR remotes**.
 
@@ -20,6 +20,7 @@ A complete, low-latency, fully automated system designed for **Android TVs (Phil
   * 🔴 **`NETFLIX` button** (Keycode `632`) $\rightarrow$ Opens **Stremio** (`com.stremio.one`)
   * 🪟 **"Windows" / 4-Tile button** (Keycode `695`) $\rightarrow$ Opens **YouTube (SmartTube)** (`org.smarttube.stable`)
   * 📺 **`Rakuten TV` button** (Keycode `779`) $\rightarrow$ Opens **TiviMate** (`ar.tvplayer.tv`)
+  * ⚙️ **`Settings / Sliders` button** (Keycode `757`) $\rightarrow$ Opens **Philips Quick Settings (Picture, Sound, Ambilight)** (`org.droidtv.action.EXPERIENCE_MENU`)
 
 ### 4. 100% Automated Cold-Boot Revival (Zero PC Needed)
 * **The Problem**: Native shell/input daemons normally terminate when an Android TV undergoes a hard power cycle (unplugged from the wall or cold reboot).
@@ -151,13 +152,16 @@ In `daemon/volume_bridge.c`:
 In `daemon/volume_bridge.c`:
 ```c
 // Code 632: NETFLIX -> Stremio
-launch_app_async("com.stremio.one/com.stremio.tv.MainActivity");
+launch_cmd_async("am start -n com.stremio.one/com.stremio.tv.MainActivity");
 
 // Code 695: Windows/4-Tile -> YouTube (SmartTube)
-launch_app_async("org.smarttube.stable/com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity");
+launch_cmd_async("am start -n org.smarttube.stable/com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity");
 
 // Code 779: Rakuten TV -> TiviMate
-launch_app_async("ar.tvplayer.tv/.ui.MainActivity");
+launch_cmd_async("am start -n ar.tvplayer.tv/.ui.MainActivity");
+
+// Code 757: Settings / Sliders -> Philips Quick Settings (Picture, Sound, Ambilight)
+launch_cmd_async("am start -a org.droidtv.action.EXPERIENCE_MENU");
 ```
 
 ---

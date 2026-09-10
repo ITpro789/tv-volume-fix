@@ -13,12 +13,10 @@
 #include <string.h>
 #include <signal.h>
 
-static void launch_app_async(const char* comp) {
+static void launch_cmd_async(const char* cmd) {
     pid_t pid = fork();
     if (pid == 0) {
         close(0); close(1); close(2);
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd), "am start -n %s", comp);
         execl("/system/bin/sh", "sh", "-c", cmd, (char*)NULL);
         _exit(0);
     }
@@ -282,7 +280,7 @@ int main() {
                 if (ev.value == 1) {
                     printf("[%lld ms] REMAP: Netflix (632) -> Stremio\n", now_ms());
                     fflush(stdout);
-                    launch_app_async("com.stremio.one/com.stremio.tv.MainActivity");
+                    launch_cmd_async("am start -n com.stremio.one/com.stremio.tv.MainActivity");
                 }
                 continue; // Consume event completely
             }
@@ -291,7 +289,7 @@ int main() {
                 if (ev.value == 1) {
                     printf("[%lld ms] REMAP: Windows/Tile (695) -> YouTube (SmartTube)\n", now_ms());
                     fflush(stdout);
-                    launch_app_async("org.smarttube.stable/com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity");
+                    launch_cmd_async("am start -n org.smarttube.stable/com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity");
                 }
                 continue; // Consume event completely
             }
@@ -300,14 +298,27 @@ int main() {
                 if (ev.value == 1) {
                     printf("[%lld ms] REMAP: Rakuten TV (779) -> TiviMate\n", now_ms());
                     fflush(stdout);
-                    launch_app_async("ar.tvplayer.tv/.ui.MainActivity");
+                    launch_cmd_async("am start -n ar.tvplayer.tv/.ui.MainActivity");
                 }
                 continue; // Consume event completely
             }
+            // Remap 4: Settings / Sliders button (757) -> Philips Quick Settings (Frequent settings overlay)
+            if (ev.code == 757) {
+                if (ev.value == 1) {
+                    printf("[%lld ms] REMAP: Settings (757) -> Philips Quick Settings\n", now_ms());
+                    fflush(stdout);
+                    launch_cmd_async("am start -a org.droidtv.action.EXPERIENCE_MENU");
+                }
+                continue; // Consume event completely (swallowing the unwanted TV_INPUT / Inputs menu)
+            }
         }
 
-        // Non-volume keys: forward transparently
+        // Non-volume keys: log and forward transparently
         if (ev.type != EV_KEY || (ev.code != KEY_VOLUMEUP && ev.code != KEY_VOLUMEDOWN)) {
+            if (ev.type == EV_KEY && ev.value == 1) {
+                printf("[%lld ms] KEY PRESS: code=%d\n", now_ms(), ev.code);
+                fflush(stdout);
+            }
             write(g_uinput_fd, &ev, sizeof(ev));
             continue;
         }
