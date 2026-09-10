@@ -1,0 +1,6 @@
+﻿bin/
+*.keystore
+*.log
+.system_generated/
+.idea/
+*.swp
