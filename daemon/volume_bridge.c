@@ -17,7 +17,9 @@ static void launch_app_async(const char* comp) {
     pid_t pid = fork();
     if (pid == 0) {
         close(0); close(1); close(2);
-        execl("/system/bin/am", "am", "start", "-n", comp, (char*)NULL);
+        char cmd[256];
+        snprintf(cmd, sizeof(cmd), "am start -n %s", comp);
+        execl("/system/bin/sh", "sh", "-c", cmd, (char*)NULL);
         _exit(0);
     }
 }
@@ -245,13 +247,19 @@ int main() {
     fflush(stdout);
     sleep(2);
 
-    // 2. Grab /dev/input/event1 exclusively
-    if (ioctl(raw_fd, EVIOCGRAB, 1) < 0) {
-        perror("EVIOCGRAB 1");
-        close(raw_fd);
-        ioctl(g_uinput_fd, UI_DEV_DESTROY);
-        close(g_uinput_fd);
-        return 3;
+    // 2. Grab /dev/input/event1 exclusively (with retry loop)
+    int grab_retries = 15;
+    while (ioctl(raw_fd, EVIOCGRAB, 1) < 0) {
+        if (--grab_retries <= 0) {
+            perror("EVIOCGRAB 1");
+            close(raw_fd);
+            ioctl(g_uinput_fd, UI_DEV_DESTROY);
+            close(g_uinput_fd);
+            return 3;
+        }
+        printf("Waiting for /dev/input/event1 lock... retrying in 200ms\n");
+        fflush(stdout);
+        usleep(200000);
     }
     printf("EVIOCGRAB active! Shielding Android from raw IR burst storms.\n");
     fflush(stdout);
