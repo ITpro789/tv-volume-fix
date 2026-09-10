@@ -4,3 +4,4 @@
 .system_generated/
 .idea/
 *.swp
+*.idsig

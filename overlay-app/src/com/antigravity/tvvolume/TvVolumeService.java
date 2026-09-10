@@ -76,6 +76,7 @@ public class TvVolumeService extends Service {
         initOverlayView();
         registerVolumeBroadcastReceiver();
         startSocketServer();
+        AdbStarter.ensureBridgeRunningAsync();
     }
 
     private void registerVolumeBroadcastReceiver() {
@@ -337,3 +338,4 @@ public class TvVolumeService extends Service {
         return null;
     }
 }
+

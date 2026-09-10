@@ -15,11 +15,15 @@ public class BootReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         Log.i(TAG, "Received boot intent: " + action);
 
+        // 1. Start the overlay foreground service
         Intent serviceIntent = new Intent(context, TvVolumeService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(serviceIntent);
         } else {
             context.startService(serviceIntent);
         }
+
+        // 2. Automatically launch the native volume_bridge daemon via local ADB on boot
+        AdbStarter.ensureBridgeRunningAsync();
     }
 }
