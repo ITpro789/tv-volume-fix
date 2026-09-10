@@ -20,7 +20,7 @@ A complete, low-latency, fully automated system designed for **Android TVs (Phil
   * 🔴 **`NETFLIX` button** (Keycode `632`) $\rightarrow$ Opens **Stremio** (`com.stremio.one`)
   * 🪟 **"Windows" / 4-Tile button** (Keycode `695`) $\rightarrow$ Opens **YouTube (SmartTube)** (`org.smarttube.stable`)
   * 📺 **`Rakuten TV` button** (Keycode `779`) $\rightarrow$ Opens **TiviMate** (`ar.tvplayer.tv`)
-  * ⚙️ **`Settings / Sliders` button** (Keycode `757`) $\rightarrow$ Opens **Philips Quick Settings (Picture, Sound, Ambilight)** (`org.droidtv.action.EXPERIENCE_MENU`)
+  * ⚙️ **`Settings / Sliders` button** (Keycode `357` / `757`) $\rightarrow$ Opens **Philips Frequent Settings (Picture, Sound, Ambilight)** (`org.droidtv.action.EXPERIENCE_MENU`)
 
 ### 4. 100% Automated Cold-Boot Revival (Zero PC Needed)
 * **The Problem**: Native shell/input daemons normally terminate when an Android TV undergoes a hard power cycle (unplugged from the wall or cold reboot).
@@ -160,7 +160,7 @@ launch_cmd_async("am start -n org.smarttube.stable/com.liskovsoft.smartyoutubetv
 // Code 779: Rakuten TV -> TiviMate
 launch_cmd_async("am start -n ar.tvplayer.tv/.ui.MainActivity");
 
-// Code 757: Settings / Sliders -> Philips Quick Settings (Picture, Sound, Ambilight)
+// Code 357 / 757: Settings / Sliders -> Philips Frequent Settings (Picture, Sound, Ambilight)
 launch_cmd_async("am start -a org.droidtv.action.EXPERIENCE_MENU");
 ```
 
