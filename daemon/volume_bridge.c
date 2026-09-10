@@ -302,14 +302,14 @@ int main() {
                 }
                 continue; // Consume event completely
             }
-            // Remap 4: Settings / Sliders button (757) -> Philips Quick Settings (Frequent settings overlay)
-            if (ev.code == 757) {
+            // Remap 4: Settings / Sliders button (357 / 757) -> Philips Frequent Settings
+            if (ev.code == 357 || ev.code == 757) {
                 if (ev.value == 1) {
-                    printf("[%lld ms] REMAP: Settings (757) -> Philips Quick Settings\n", now_ms());
+                    printf("[%lld ms] REMAP: Settings (%d) -> Philips Frequent Settings\n", now_ms(), ev.code);
                     fflush(stdout);
                     launch_cmd_async("am start -a org.droidtv.action.EXPERIENCE_MENU");
                 }
-                continue; // Consume event completely (swallowing the unwanted TV_INPUT / Inputs menu)
+                continue; // Consume event completely
             }
         }
 
