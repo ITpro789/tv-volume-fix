@@ -1,4 +1,4 @@
-﻿param (
+param (
     [string]$TvIp = "192.168.1.17:5555"
 )
 
@@ -38,8 +38,9 @@ adb -s $TvIp shell "appops set com.antigravity.tvvolume SYSTEM_ALERT_WINDOW allo
 adb -s $TvIp shell "am force-stop com.antigravity.tvvolume"
 adb -s $TvIp shell "am start-foreground-service com.antigravity.tvvolume/.TvVolumeService"
 
-# 5. Launch Daemon in background
-Write-Host "`n[5/5] Launching Daemon..." -ForegroundColor Yellow
+# 5. Apply OS Memory Optimizations & Launch Daemon
+Write-Host "`n[5/5] Applying low-RAM optimizations & Launching Daemon..." -ForegroundColor Yellow
+adb -s $TvIp shell "device_config put activity_manager max_cached_processes 3; settings put global background_process_limit 3"
 adb -s $TvIp shell "nohup /data/local/tmp/volume_bridge > /data/local/tmp/volume_bridge.log 2>&1 &"
 Start-Sleep -Seconds 2
 
