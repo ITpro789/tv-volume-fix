@@ -1,168 +1,120 @@
-# Android TV Volume Bridge, CEC Overlay & Remote Remapper (`tv-volume-fix`)
+# Philips 65" Android TV (TPM191E) Optimization, Hardware Remapping & HDMI-CEC Volume Bridge
 
-A complete, low-latency, fully automated system designed for **Android TVs (Philips TPM191E / TPM171E)** connected to an **external soundbar or AV receiver (Yamaha YSP / YAS series, Sonos, Denon)** via **HDMI-ARC/CEC**, with native hardware button remapping for **replica/replacement IR remotes**.
-
----
-
-## 🎯 What This System Solves
-
-### 1. Volume "Runaway" & CEC Timing Desync
-* **The Problem**: Tapping Volume Up once jumps 3–4 steps, or holding it down enters **6x–7x turbo runaway mode**, jumping or dropping 40 numbers in 4 seconds with huge overshoot when released.
-* **The Fix**: Intercepts the raw IR remote stream via `EVIOCGRAB` at the Linux kernel level, enforces a 60ms release debounce, and paces pulses at **0.48s** (the exact physical speed limit of the 417-baud HDMI-CEC bus).
-
-### 2. Missing On-Screen Volume Display (OSD) on HDMI-ARC
-* **The Problem**: Philips TV firmware **intentionally suppresses the on-screen volume bar** when an external HDMI-ARC soundbar is plugged in, forcing users to squint across the room at the soundbar's tiny front display.
-* **The Fix**: Intercepts the soundbar's raw `<Report Audio Status>` messages directly from the HDMI-CEC wire in real time and paints a high-contrast, compact, frosted-glass volume pill in the **top-right corner** that matches the soundbar's display 1:1 and auto-dismisses after 2 seconds.
-
-### 3. Dedicated Remote App Button Remapping
-* **The Problem**: Replica and OEM remotes have hardcoded vendor buttons (Netflix, Rakuten TV, Philips TV Collection) that cannot be remapped through standard TV settings.
-* **The Fix**: Intercepts the hardware key codes before Android receives them, completely swallowing the original action and launching your preferred apps instantly:
-  * 🔴 **`NETFLIX` button** (Keycode `632`) $\rightarrow$ Opens **Stremio** (`com.stremio.one`)
-  * 🪟 **"Windows" / 4-Tile button** (Keycode `695`) $\rightarrow$ Opens **YouTube (SmartTube)** (`org.smarttube.stable`)
-  * 📺 **`Rakuten TV` button** (Keycode `779`) $\rightarrow$ Opens **TiviMate** (`ar.tvplayer.tv`)
-  * ⚙️ **`Settings / Sliders` button** (Keycode `357` / `757`) $\rightarrow$ Opens **Philips Frequent Settings (Picture, Sound, Ambilight)** (`org.droidtv.action.EXPERIENCE_MENU`)
-
-### 4. 100% Automated Cold-Boot Revival (Zero PC Needed)
-* **The Problem**: Native shell/input daemons normally terminate when an Android TV undergoes a hard power cycle (unplugged from the wall or cold reboot).
-* **The Fix**: The installed Android app (`TvVolumeOverlay`) contains a built-in **Localhost ADB Loopback Client** (`AdbStarter.java`). When Android finishes booting (`BOOT_COMPLETED`), the app connects to `127.0.0.1:5555`, authenticates using an embedded authorized RSA key in $<100$ms, and revives the native bridge daemon automatically.
+A production-grade, battle-tested engineering repository containing performance tuning, hardware button remappings, HDMI-ARC audio OSD, CEC runaway pacing, and 4K streaming optimizations for the **Philips 65" 4K Android TV (TPM191E / MediaTek MT5887 SoC, Android 12)**.
 
 ---
 
-## 🔬 The Physics & Why Standard Fixes Fail
-
-### 1. The 417-Baud HDMI-CEC Wire Limitation
-HDMI-CEC is a single-wire serial bus running at **417 bits per second** (1 bit every 2.4ms).
-A complete volume cycle requires:
-1. TV sends `<User Control Pressed> [0x41]` (~88ms)
-2. Android enforces CEC Inter-Repeat Timeout (IRT) (~300ms)
-3. TV sends `<User Control Release> [0x45]` (~64ms)
-4. Soundbar replies `<Report Audio Status> [0xXX]` (~88ms)
-
-**Total bus round-trip time: ~350ms.**
-
-### 2. The 0.40s "Turbo Jump" Threshold
-If pulses are sent faster than ~480ms (e.g. 375ms or 400ms), wire silence collapses to $<25$ms. To the soundbar's DSP, this looks like an uninterrupted continuous keypress. After 2–3 seconds, the soundbar's internal firmware triggers **hardware turbo acceleration**, skipping +5 to +9 numbers in a single burst:
-```text
-[Live HDMI Bus Log at 400ms]
-23:53:25.996 -> Vol 36
-23:53:26.501 -> Vol 45   <--- JUMPED +9 NUMBERS IN 0.5 SECONDS!
-...
-23:53:33.293 -> Vol 39
-23:53:33.745 -> Vol 31   <--- JUMPED -8 NUMBERS IN 0.4 SECONDS!
-```
-
-### 3. The 0.48s Sweet Spot
-At **0.48s (480ms)** with a **20ms keypress pulse width**, the bus maintains a clean **~130ms silence window** between every beat. The soundbar cleanly hears every `Release` before the next `Pressed`, guaranteeing **strictly 1-by-1 stepping** (`31 -> 32 -> 33 -> 34`) with zero runaway jumps.
-
----
-
-## 🏗️ Architecture
-
-```
-                                  [ Replica IR Remote ]
-                                            │
-                                            ▼
-                           /dev/input/event1 (TPV_MutilRC)
-                                            │
-               ┌────────────────────────────┴────────────────────────────┐
-               │              volume_bridge (Native C Daemon)             │
-               │                                                         │
-               │  [EVIOCGRAB 1]                                          │
-               │  • Blocks Android from raw IR burst storms               │
-               │  • Remaps: Netflix->Stremio, Tile->YouTube, Rakuten->Tivi│
-               │  • Passes all other 748 non-volume keys to /dev/uinput   │
-               │  • Enforces 60ms debounce & strictly paced 480ms pulses  │
-               └────────────────────────────┬────────────────────────────┘
-                                            │
-                   ┌────────────────────────┴────────────────────────┐
-                   ▼                                                 ▼
-          [ /dev/uinput clone ]                           [ CEC Monitor Thread ]
-                   │                                                 │
-          Android AudioService                            Streams `logcat -s HDMI:D`
-                   │                                      Extracts `<Report Audio Status>`
-            HDMI-CEC Wire                                            │
-                   │                                         Sends live volume via
-                   ▼                                       localhost TCP (127.0.0.1:49200)
-          Yamaha Soundbar DSP                                        │
-          (Changes Volume +1)                                        ▼
-                   │                                    TvVolumeOverlay (Android App)
-                   ▼                                    • TYPE_APPLICATION_OVERLAY
-           Sends CEC Status                             • Tucked in Top-Right corner
-        <Report Audio Status> [XX]                      • Displays VOL XX & Cyan Bar
-                                                        • Auto-fades after 2.0s
-```
-
----
-
-## 📦 Repository Structure
+## 📑 Repository Structure & Documentation Index
 
 ```text
-tv-volume-fix/
-├── README.md                      # Comprehensive technical guide & architecture
-├── .gitignore
+AndroidTV-Philips/
+├── README.md                            # Complete master guide, architecture & quickstart
+├── docs/
+│   ├── HARDWARE_AND_SPECS.md            # SoC specs, eMMC health, 10/100 Ethernet trap & RAM limits
+│   ├── STREMIO_STREAMING_GUIDE.md       # TrueHD lossless audio bottleneck, WEB-DL vs REMUX, RAM cache
+│   ├── REMOTE_AND_IR_DEEP_DIVE.md       # Replica IR vs Bluetooth, physical line-of-sight & contact wear
+│   ├── HDMI_CEC_VOLUME_BRIDGE.md        # 417-baud bus timing, 0.48s pacing & top-right volume OSD
+│   └── SYSTEM_TUNING_AND_DEBLOAT.md     # Process limits, zero animations, AOT compilation & debloat
 ├── daemon/
-│   ├── volume_bridge.c            # Native C daemon (EVIOCGRAB shield + CEC sniffer + app remap)
-│   ├── volume_bridge              # Prebuilt ARMv7 native binary
-│   └── build.ps1                  # 1-click NDK Clang compilation script
+│   ├── volume_bridge.c                  # Native C daemon (EVIOCGRAB shield + CEC sniffer + app remap)
+│   ├── volume_bridge                    # Prebuilt ARMv7 native binary
+│   └── build.ps1                        # 1-click NDK Clang compilation script
 ├── overlay-app/
-│   ├── AndroidManifest.xml        # TV Leanback manifest with overlay permissions
-│   ├── TvVolumeOverlay.apk        # Prebuilt, signed TV OSD APK with embedded AdbStarter
-│   ├── build.ps1                  # Zero-dependency build script (javac + d8 + aapt2)
+│   ├── AndroidManifest.xml              # TV Leanback manifest with overlay permissions
+│   ├── TvVolumeOverlay.apk              # Prebuilt, signed TV OSD APK with embedded AdbStarter
+│   ├── build.ps1                        # Zero-dependency build script (javac + d8 + aapt2)
 │   └── src/com/antigravity/tvvolume/
-│       ├── TvVolumeService.java   # Real-time top-right OSD overlay service
-│       ├── BootReceiver.java      # Auto-start on TV boot receiver
-│       └── AdbStarter.java        # On-device localhost ADB loopback daemon starter
+│       ├── TvVolumeService.java         # Real-time top-right OSD overlay service
+│       ├── BootReceiver.java            # Auto-start on TV boot receiver
+│       └── AdbStarter.java              # On-device localhost ADB loopback daemon starter
 └── scripts/
-    ├── install.ps1                # One-click ADB deployment script (TV IP argument)
-    └── start_bridge.sh            # TV-side daemon launcher
+    ├── apply_tuning.ps1                 # 1-click system performance & AOT compilation script
+    ├── install.ps1                      # 1-click volume bridge & overlay APK installer
+    ├── test_input.ps1                   # Screenshot capture & input device diagnostic tool
+    └── start_bridge.sh                  # TV-side daemon launcher
 ```
 
 ---
 
-## 🚀 Quick Start (Installation)
+## 🎯 What This Repository Solves
+
+### 1. Dedicated Replica Remote Hardware Button Remappings
+* **The Problem**: Replica and OEM replacement remotes have hardcoded vendor buttons (Netflix, Rakuten TV, Philips TV Collection) that cannot be changed through Android settings.
+* **The Fix**: The native C daemon (`volume_bridge`) grabs `/dev/input/event1` (`EVIOCGRAB 1`), completely swallows vendor keycodes, and launches user apps instantly:
+  * 🔴 **`NETFLIX` button** (Keycode `632`) $\rightarrow$ **Stremio** (`com.stremio.one`)
+  * 🪟 **Windows / 4-Tile button** (Keycode `695`) $\rightarrow$ **SmartTube (Ad-Free YouTube)** (`org.smarttube.stable`)
+  * 📺 **`Rakuten TV` button** (Keycode `779`) $\rightarrow$ **TiviMate (Live IPTV)** (`ar.tvplayer.tv`)
+  * ⚙️ **`Settings / Sliders` button** (Keycode `357` / `757`) $\rightarrow$ **Philips Frequent Settings (Ambilight, Picture, Sound)** (`org.droidtv.action.EXPERIENCE_MENU`)
+
+### 2. HDMI-ARC Soundbar Volume "Turbo Runaway" & Missing OSD
+* **The Problem**: 
+  1. Philips firmware hides the on-screen volume bar whenever an external soundbar is plugged in.
+  2. Holding Volume Up/Down on the remote sends IR pulses faster than the 417-baud HDMI-CEC wire can process, causing external soundbars (Yamaha YSP/YAS) to enter **hardware turbo acceleration (+8 to +10 jump in 0.4s)**.
+* **The Fix**: 
+  - `volume_bridge` enforces a **60ms release debounce** and paces repeat pulses at **0.48s (480ms)** with a **20ms pulse width**, guaranteeing strictly 1-by-1 stepping with zero runaway.
+  - Sniffs `<Report Audio Status>` from HDMI logcat and displays a high-contrast, frosted-glass volume pill in the **top-right corner** via `TvVolumeOverlay.apk`.
+
+### 3. Stremio 4K Playback Freezing (Lossless Audio Bottleneck)
+* **The Problem**: 50–60 GB 4K Blu-ray REMUXes stutter, freeze, or cause audio desync.
+* **The Cause**: The MediaTek MT5887 SoC lacks a hardware decoder for **Dolby TrueHD 7.1** or **DTS-HD MA**, forcing the quad-core CPU to 100% load attempting software decoding.
+* **The Fix**: Stream **15–25 GB 4K WEB-DL** releases featuring **DDP 5.1 / E-AC-3** (Dolby Digital Plus with Atmos), which hardware-decodes at 15% CPU load.
+* **Storage Protection**: Set Stremio's **Cache Size to `No cache` (0)** to protect the worn (80–90% used) eMMC flash memory from 3.8 MB/s write bottlenecks.
+
+### 4. Remote Input Lag & The "1 in 10 Presses" Diagnostic
+* **The Problem**: Remote control appears sluggish or drops 9 out of 10 keypresses while Ambilight works instantly.
+* **The Cause**: 
+  1. **Physical Obstruction**: The TV's IR photodiode is at the very bottom chin. Soundbars placed directly in front block line-of-sight from the couch.
+  2. **Keypad Contact Wear**: Carbon conductive pills under heavily used D-pad keys oxidize and wear down, raising resistance, while the rarely used Ambilight button retains factory conductivity.
+  3. **Architecture**: Ambilight is routed directly to `org.droidtv.GlobalKey` at the TV chassis firmware level, bypassing Android's view hierarchy.
+
+### 5. System Responsiveness & Memory Locking
+* UI animations zeroed (`0.0x`) for instantaneous focus shifts.
+* `max_cached_processes = 12` locked against Google Play Services reset via `device_config set_sync_disabled_for_tests persistent`.
+* Core apps compiled to native ARM machine code (`cmd package compile -m speed -f`).
+* Projectivy Launcher set as default home, dropping launcher RAM usage from ~250 MB down to ~35 MB.
+
+---
+
+## 🚀 1-Click Quickstart & Installation
 
 ### Prerequisites
-* Enable **Developer Options** and **Network Debugging** on your Android TV.
-* Verify your TV's local IP address (e.g. `192.168.1.17`).
+* Android TV connected to local Wi-Fi with **Developer Options** and **Network Debugging** enabled.
+* Target TV IP: `192.168.1.17:5555`.
 
-### One-Click Install
-From PowerShell, run:
+### 1. Apply Full System Performance Tuning
+From PowerShell on your PC:
+```powershell
+.\scripts\apply_tuning.ps1 -TvIp "192.168.1.17:5555"
+```
+*Locks cached process limits, sets 0.0x animation scales, disables bloatware daemons, and compiles all core media apps to native machine code.*
+
+### 2. Deploy the Volume Bridge & Button Remapping Daemon
 ```powershell
 .\scripts\install.ps1 -TvIp "192.168.1.17:5555"
 ```
-
-The script will automatically:
-1. Connect to the TV over ADB.
-2. Push and deploy `volume_bridge` to `/data/local/tmp/volume_bridge`.
-3. Install `TvVolumeOverlay.apk`.
-4. Grant `SYSTEM_ALERT_WINDOW` permission.
-5. Start both the overlay service and the native daemon.
+*Pushes `volume_bridge` to `/data/local/tmp`, installs `TvVolumeOverlay.apk`, grants `SYSTEM_ALERT_WINDOW`, and starts the background service.*
 
 ---
 
-## ⚙️ Configuration & Customization
+## ⚡ Technical Summary Cards
 
-### Pacing & Debounce
-In `daemon/volume_bridge.c`:
-* `HOLD_REPEAT_STEP_MS`: Repeat interval during hold (Default: `480`ms). Do NOT set below ~450ms or Yamaha soundbars will trigger turbo runaway.
-* `RELEASE_DEBOUNCE_MS`: Time of silence before confirming physical release (Default: `60`ms).
-* `HOLD_START_DELAY_MS`: Delay before repeat kicks in (Default: `380`ms).
+| Topic | Verified Configuration | Key Benefit |
+|---|---|---|
+| **Network** | 5GHz Wi-Fi (`wlan0`) | Bypasses 100 Mbps physical Ethernet bottleneck; provides 130–180 Mbps throughput for 4K streams. |
+| **Stremio Cache** | `cacheSize: 0` (RAM only) | Prevents thrashing the slow 3.8 MB/s eMMC flash drive (which has 80–90% lifetime used). |
+| **Stremio Streams** | 15–25 GB 4K WEB-DL (`DDP 5.1` / `E-AC-3`) | Native hardware audio decoding with Dolby Atmos; avoids 100% CPU lockup from 7.1 TrueHD REMUXes. |
+| **SmartTube PiP** | `PICTURE_IN_PICTURE` $\rightarrow$ `ignore` | Prevents YouTube from locking the hardware video decoder when switching to Stremio. |
+| **CEC Volume Pacing** | 480 ms interval / 20 ms pulse | Eliminates Yamaha soundbar turbo acceleration jumps while maintaining responsive volume stepping. |
+| **Cold Boot Loopback** | Embedded RSA key in `AdbStarter.java` | Automatically revives the native bridge daemon upon TV boot without requiring a PC. |
 
-### Button Remappings
-In `daemon/volume_bridge.c`:
-```c
-// Code 632: NETFLIX -> Stremio
-launch_cmd_async("am start -n com.stremio.one/com.stremio.tv.MainActivity");
+---
 
-// Code 695: Windows/4-Tile -> YouTube (SmartTube)
-launch_cmd_async("am start -n org.smarttube.stable/com.liskovsoft.smartyoutubetv2.tv.ui.main.SplashActivity");
-
-// Code 779: Rakuten TV -> TiviMate
-launch_cmd_async("am start -n ar.tvplayer.tv/.ui.MainActivity");
-
-// Code 357 / 757: Settings / Sliders -> Philips Frequent Settings (Picture, Sound, Ambilight)
-launch_cmd_async("am start -a org.droidtv.action.EXPERIENCE_MENU");
-```
+## 📖 Deep Dive Documentation Links
+* [Hardware Specifications & Storage Benchmarks](docs/HARDWARE_AND_SPECS.md)
+* [Stremio 4K Streaming & Codec Guide](docs/STREMIO_STREAMING_GUIDE.md)
+* [Remote Control Engineering & Infrared Signal Analysis](docs/REMOTE_AND_IR_DEEP_DIVE.md)
+* [HDMI-CEC Bus Timing & Volume Bridge Architecture](docs/HDMI_CEC_VOLUME_BRIDGE.md)
+* [System Tuning, Process Limits & Debloating Guide](docs/SYSTEM_TUNING_AND_DEBLOAT.md)
 
 ---
 
